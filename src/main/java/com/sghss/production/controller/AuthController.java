@@ -1,63 +1,55 @@
 package com.sghss.production.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import com.sghss.production.dto.auth.AuthResponseDTO;
+import com.sghss.production.dto.auth.LoginRequestDTO;
+import com.sghss.production.dto.user.UserRequestDTO;
+import com.sghss.production.dto.user.UserResponseDTO;
+import com.sghss.production.service.AuthService;
+import com.sghss.production.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
 
-import com.sghss.production.dto.AuthResponseDTO;
-import com.sghss.production.entities.AuthRequestDTO;
-import com.sghss.production.entity.Usuario;
-import com.sghss.production.repositores.UsuarioRepository;
-import com.sghss.production.security.JwtService;
-
-import lombok.RequiredArgsConstructor;
-
-@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/auth")
+@Tag(name = "Autenticação e Usuários", description = "Endpoints para login e gerenciamento de usuários.")
 public class AuthController {
 
-    private final PasswordEncoder passwordEncoder;
+    private final AuthService authService;
+    private final UserService userService;
 
-    private final AuthenticationManager authManager;
-    private final UsuarioRepository usuarioRepository;
-    private final JwtService jwtService;
-    
-    @Autowired
-    public AuthController(
-        AuthenticationManager authManager,
-        UsuarioRepository usuarioRepository,
-        JwtService jwtService
-    , PasswordEncoder passwordEncoder) {
-        this.authManager = authManager;
-        this.usuarioRepository = usuarioRepository;
-        this.jwtService = jwtService;
-        this.passwordEncoder = passwordEncoder;
+    public AuthController(AuthService authService, UserService userService) {
+        this.authService = authService;
+        this.userService = userService;
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponseDTO> login(@RequestBody AuthRequestDTO request) {
-        authManager.authenticate(
-            new UsernamePasswordAuthenticationToken(request.getEmail(), request.getSenha())
-        );
-
-        Usuario usuario = usuarioRepository.findByEmail(request.getEmail())
-            .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado"));
-
-        String token = jwtService.gerarToken(usuario);
-        return ResponseEntity.ok(new AuthResponseDTO());
+    @Operation(summary = "Autenticar usuário e obter JWT",
+               description = "Autentica um usuário com username e senha e retorna um JSON Web Token (JWT).")
+    public ResponseEntity<AuthResponseDTO> login(@RequestBody @Valid LoginRequestDTO request) {
+        AuthResponseDTO response = authService.authenticate(request);
+        return ResponseEntity.ok(response);
     }
-    
-    @PostMapping("/register")
-    public ResponseEntity<Usuario> register(@RequestBody Usuario usuario) {
-        usuario.setSenha(passwordEncoder.encode(usuario.getSenha()));
-        Usuario salvo = usuarioRepository.save(usuario);
-        return ResponseEntity.ok(salvo);
+
+    @PostMapping("/register") // Endpoint para registro (inicialmente para ADMIN criar usuários)
+    @PreAuthorize("hasRole('ADMIN')") // Apenas ADMIN pode registrar novos usuários
+    @Operation(summary = "Registrar novo usuário",
+               description = "Registra um novo usuário no sistema. Apenas usuários com perfil ADMIN podem realizar esta operação.")
+    public ResponseEntity<UserResponseDTO> registerUser(@RequestBody @Valid UserRequestDTO request) {
+        UserResponseDTO newUser = userService.createUser(request);
+        return new ResponseEntity<>(newUser, HttpStatus.CREATED);
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROFISSIONAL_SAUDE', 'PACIENTE')") // Exemplo de como consultar um usuário
+    @Operation(summary = "Consultar dados de um usuário",
+               description = "Consulta os dados de um usuário pelo ID. Acesso restrito por perfil.")
+    public ResponseEntity<UserResponseDTO> getUserById(@PathVariable Long id) {
+        UserResponseDTO user = userService.findUserById(id);
+        return ResponseEntity.ok(user);
     }
 }
